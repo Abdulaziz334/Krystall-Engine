@@ -248,3 +248,100 @@ struct Renderer {
         model.draw();
     }
 };
+// =========================================================
+// KRYSTALLENGINE
+// QISM 3 - SCENE / ANIMATION / MAIN LOOP
+// =========================================================
+#include <vector>
+#include <string>
+#include <iostream>
+
+struct Animation {
+    std::string name;
+    float duration;
+
+    void play() {
+        std::cout << "[Animation] Playing " << name << " (" << duration << "s)" << '\n';
+    }
+};
+
+struct Node {
+    Model model;
+    Mat4 transform;
+    std::vector<Node> children;
+
+    void draw(Renderer &renderer, const Mat4 &view, const Mat4 &proj, const Light &light) {
+        renderer.draw(model, transform, view, proj, light);
+        for (auto &child : children) {
+            child.draw(renderer, view, proj, light);
+        }
+    }
+
+    void addChild(const Node &node) {
+        children.push_back(node);
+    }
+};
+
+struct Physics {
+    static bool isColliding(const Node &a, const Node &b, float distance) {
+        // Dummy bounding sphere collision detection
+        float dx = a.transform.m[12] - b.transform.m[12];
+        float dy = a.transform.m[13] - b.transform.m[13];
+        float dz = a.transform.m[14] - b.transform.m[14];
+        float dist = sqrt(dx * dx + dy * dy + dz * dz);
+        return dist <= distance;
+    }
+};
+
+int main() {
+    if (!glfwInit()) {
+        std::cerr << "GLFW init error!\n";
+        return -1;
+    }
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    GLFWwindow *window = glfwCreateWindow(1024, 768, "KrystallEngine Demo", nullptr, nullptr);
+    if (!window) {
+        std::cerr << "Window yaratib bo'lmadi!\n";
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+    if (glewInit() != GLEW_OK) {
+        std::cerr << "GLEW init error!\n";
+        return -1;
+    }
+
+    Renderer renderer;
+    if (!renderer.init("shaders/basic.vert", "shaders/basic.frag")) {
+        std::cerr << "Shaderlarni yuklashda xato!\n";
+        return -1;
+    }
+
+    Model cube;
+    if (!cube.load("models/cube.obj")) {
+        std::cerr << "Cube modelini yuklashda xato!\n";
+        return -1;
+    }
+
+    Node root{cube, identity()};
+    Node child{cube, translate(1.5f, 0.0f, 0.0f)};
+    root.addChild(child);
+
+    Light light{{2.0f, 4.0f, 2.0f}, {1.0f, 1.0f, 1.0f}};
+    Animation walkAnimation{"Walk", 2.5f};
+    walkAnimation.play();
+
+    while (!glfwWindowShouldClose(window)) {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        Mat4 view = identity();
+        Mat4 proj = perspective(3.1415926535f / 3.0f, 1024.0f / 768.0f, 0.1f, 100.0f);
+        root.draw(renderer, view, proj, light);
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    glfwTerminate();
+    return 0;
+}
