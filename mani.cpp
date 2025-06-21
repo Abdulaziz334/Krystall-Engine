@@ -130,43 +130,62 @@ struct Resurs {
 };
 
 //
+// ⚡️ Render (Placeholder)
+//
+struct Render {
+    void chizish(const std::string &nom) {
+        cout << "[Render] '" << nom << "' chizilmoqda...\n";
+    }
+};
+
+//
+// ⚡️ Shablon (Template) Misoli
+//
+template<typename T>
+struct Shablon {
+    T qiymat;
+
+    Shablon(T q) : qiymat(q) {}
+
+    void chop() {
+        cout << "[Shablon] Qiymat: " << qiymat << '\n';
+    }
+};
+
+//
 // ⚡️ MAIN
 //
 int main() {
-    // 🔥 Vektor2 va Vektor3 test
-    Vektor2 v2a(2.0f, 3.0f);
-    Vektor2 v2b(1.0f, 1.0f);
+    // ✅ Vektor2 / Vektor3
+    Vektor2 v2a(2.0f, 3.0f), v2b(1.0f, 1.0f);
     auto v2_qosh = v2a + v2b;
-
     cout << "Vektor2 Qoshish: (" << v2_qosh.x << ", " << v2_qosh.y << ")\n";
 
-    Vektor3 v3a(1.0f, 2.0f, 3.0f);
-    Vektor3 v3b(4.0f, 5.0f, 6.0f);
+    Vektor3 v3a(1.0f, 2.0f, 3.0f), v3b(4.0f, 5.0f, 6.0f);
     auto v3_qosh = v3a + v3b;
-
     cout << "Vektor3 Qoshish: (" << v3_qosh.x << ", " << v3_qosh.y << ", " << v3_qosh.z << ")\n";
 
-    // 🎨 Rang test
+    // ✅ Rang
     Rang rang1(1.0f, 0.5f, 0.25f);
     cout << "Rang: (" << rang1.r << ", " << rang1.g << ", " << rang1.b << ", " << rang1.a << ")\n";
 
-    // ⚡️ Hodisa test
+    // ✅ Hodisa
     Hodisa h1(Hodisa::KlavishBosildi, 65);
     Hodisa h2(Hodisa::SichqonchaBosildi, 1);
     h1.chop();
     h2.chop();
 
-    // ⚡️ Ilova test
+    // ✅ Ilova
     Ilova app;
     app.boshlash();
     app.aylanish();
     app.yopish();
 
-    // ⚡️ Resurs test
+    // ✅ Resurs
     Resurs r;
     r.yuklash("resurs.png");
 
-    // ⚡️ Matritsa4 test
+    // ✅ Matritsa4
     Matritsa4 mat;
     cout << "Matritsa4 (4x4):\n";
     for(int i = 0; i < 4; ++i) {
@@ -175,6 +194,17 @@ int main() {
         }
         cout << '\n';
     }
+
+    // ✅ Render
+    Render rend;
+    rend.chizish("Uchburchak");
+
+    // ✅ Shablon
+    Shablon<int> s1(42);
+    s1.chop();
+
+    Shablon<std::string> s2("KrystallEngine");
+    s2.chop();
 
     return 0;
 }
