@@ -156,3 +156,95 @@ struct Model {
         glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
     }
 };
+// =========================================================
+// KRYSTALLENGINE
+// QISM 2 - SHADERLAR / UTILS
+// =========================================================
+#include <string>
+#include <fstream>
+#include <sstream>
+
+struct Shader {
+    GLuint id;
+
+    static GLuint compileShader(const std::string &source, GLenum type) {
+        GLuint shader = glCreateShader(type);
+        const char* src = source.c_str();
+        glShaderSource(shader, 1, &src, nullptr);
+        glCompileShader(shader);
+        GLint success;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            char info[1024];
+            glGetShaderInfoLog(shader, sizeof(info), nullptr, info);
+            std::cerr << "[Shader xato] " << info << '\n';
+        }
+        return shader;
+    }
+
+    static Shader fromFiles(const std::string &vertPath, const std::string &fragPath) {
+        std::ifstream vFile(vertPath), fFile(fragPath);
+        std::stringstream vStream, fStream;
+        vStream << vFile.rdbuf();
+        fStream << fFile.rdbuf();
+
+        GLuint v = compileShader(vStream.str(), GL_VERTEX_SHADER);
+        GLuint f = compileShader(fStream.str(), GL_FRAGMENT_SHADER);
+
+        Shader shader;
+        shader.id = glCreateProgram();
+        glAttachShader(shader.id, v);
+        glAttachShader(shader.id, f);
+        glLinkProgram(shader.id);
+
+        GLint success;
+        glGetProgramiv(shader.id, GL_LINK_STATUS, &success);
+        if (!success) {
+            char info[1024];
+            glGetProgramInfoLog(shader.id, sizeof(info), nullptr, info);
+            std::cerr << "[Shader link xato] " << info << '\n';
+        }
+        glDeleteShader(v);
+        glDeleteShader(f);
+
+        return shader;
+    }
+
+    void use() {
+        glUseProgram(id);
+    }
+
+    void setMat4(const std::string &name, const Mat4 &mat) {
+        glUniformMatrix4fv(glGetUniformLocation(id, name.c_str()),
+                           1, GL_FALSE, mat.m);
+    }
+    void setVec3(const std::string &name, float x, float y, float z) {
+        glUniform3f(glGetUniformLocation(id, name.c_str()), x, y, z);
+    }
+    void setInt(const std::string &name, int value) {
+        glUniform1i(glGetUniformLocation(id, name.c_str()), value);
+    }
+};
+
+struct Light {
+    Vec3 position;
+    Vec3 color;
+};
+
+struct Renderer {
+    Shader basicShader;
+
+    bool init(const std::string &vertPath, const std::string &fragPath) {
+        basicShader = Shader::fromFiles(vertPath, fragPath);
+        return basicShader.id != 0;
+    }
+
+    void draw(const Model &model, const Mat4 &modelMat, const Mat4 &view, const Mat4 &proj, const Light &light) {
+        basicShader.use();
+        basicShader.setMat4("model", modelMat);
+        basicShader.setMat4("view", view);
+        basicShader.setMat4("projection", proj);
+        basicShader.setVec3("lightColor", light.color.x, light.color.y, light.color.z);
+        model.draw();
+    }
+};
