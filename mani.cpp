@@ -1,104 +1,39 @@
-// ===========================================================
-// ⚡️ KRYSTALLENGINE COMPLETE SCENE
-// Day/Night + Model + Camera + Trees + Birds + Rain/Snow
-// ===========================================================
-
-#include <iostream>
-#include <string>
-#include <vector>
-#include <cmath>
-#include <cassert>
 #include <GL/glew.h>
-#include <GLFW/glfw3.h>
-#include <GL/glut.h>
-#include <ctime>
-#include <cstdlib>
+#include <GL/freeglut.h>
+#include <vector>
+#include <string>
+#include <iostream>
+#include <cmath>
+#include "stb_image.h"           // Rasmlarni yuklash
+#include "obj_loader.h"           // .obj model yuklash (oddiy loader)
 
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
-#define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h"
-
-// ===========================
-// ⚡️ Structs
-// ===========================
-struct Model {
-    GLuint vao, vbo, ebo;
-    size_t indexCount;
-    void draw() {
-        glBindVertexArray(vao);
-        glDrawElements(GL_TRIANGLES, (GLsizei)indexCount, GL_UNSIGNED_INT, 0);
-    }
-};
-struct Shader {
-    GLuint id;
-};
-struct Color {
-    float r, g, b;
-};
-struct Vec3 {
+struct Vector3 {
     float x, y, z;
 };
-struct Camera {
-    float yaw, pitch;
-    Vec3 position;
-
-    Camera() : yaw(-90.0f), pitch(0.0f), position({0.0f, 1.5f, 3.0f}) {}
+struct Bird {
+    Vector3 pos;
+    float speed;
 };
-struct Raindrop { float x, y, speed; };
-struct Snowflake { float x, y, speed; };
-struct Star { float x, y; };
-struct Bird { float x, y; };
 struct Tree {
-    float x, y;
-
-    void draw(float windOffset) {
-        glColor3f(0.55f, 0.27f, 0.07f);
-        glBegin(GL_QUADS);
-        glVertex2f(x - 0.01f, y);
-        glVertex2f(x + 0.01f, y);
-        glVertex2f(x + 0.01f, y + 0.1f);
-        glVertex2f(x - 0.01f, y + 0.1f);
-        glEnd();
-
-        drawCircle(x + windOffset, y + 0.1f, 0.03f, 0.0f, 0.8f, 0.0f);
-        drawCircle(x + windOffset - 0.03f, y + 0.08f, 0.025f, 0.0f, 0.8f, 0.0f);
-        drawCircle(x + windOffset + 0.03f, y + 0.08f, 0.025f, 0.0f, 0.8f, 0.0f);
-    }
-
-    void drawCircle(float cx, float cy, float r, float red, float green, float blue) {
-        glColor3f(red, green, blue);
-        glBegin(GL_TRIANGLE_FAN);
-        for(int i = 0; i <= 360; ++i) {
-            float degInRad = i * M_PI / 180.0f;
-            glVertex2f(cx + cos(degInRad) * r, cy + sin(degInRad) * r);
-        }
-        glEnd();
-    }
+    Vector3 pos;
+};
+struct Raindrop {
+    Vector3 pos;
+    float speed;
+};
+struct Snowflake {
+    Vector3 pos;
+    float speed;
+};
+struct Star {
+    Vector3 pos;
+};
+struct Camera {
+    float x, y, z, yaw, pitch;
 };
 
-Camera camera;
+Camera camera = {0.0f, 2.0f, 5.0f, -90.0f, 0.0f};
 float dayTime = 12.0f;
-
-void updateTime(float deltaTime) {
-    dayTime += deltaTime * 0.1f;
-    if (dayTime >= 24.0f) dayTime = 0.0f;
-}
-
-Color getSkyColor() {
-    if (dayTime >= 6.0f && dayTime < 18.0f) {
-        return {0.53f, 0.8f, 1.0f};
-    } else {
-        return {0.0f, 0.0f, 0.1f};
-    }
-}
-
-// ===========================
-// ⚡️ Scene Objects
-// ===========================
-bool isRaining = true;
-bool isSnowing = false;
 
 std::vector<Raindrop> raindrops;
 std::vector<Snowflake> snowflakes;
@@ -106,132 +41,226 @@ std::vector<Star> stars;
 std::vector<Bird> birds;
 std::vector<Tree> trees;
 
-float windOffset = 0.0f;
+bool isRaining = true;
+bool isSnowing = false;
+
+GLuint textureId;
+OBJModel treeModel;
+
+void loadTexture(const char* path) {
+    int w, h, channels;
+    unsigned char* data = stbi_load(path, &w, &h, &channels, 3);
+    glGenTextures(1, &textureId);
+    glBindTexture(GL_TEXTURE_2D, textureId);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0,
+                GL_RGB, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    stbi_image_free(data);
+}
 
 void initScene() {
     srand(time(nullptr));
+    loadTexture("resources/tree.png");        // Daraxt uchun
+    treeModel = loadOBJ("resources/tree.obj"); // .obj modeli
 
-    trees = {
-        {-0.5f, -0.7f},
-        {-0.2f, -0.65f},
-        {0.3f, -0.75f},
-        {0.7f, -0.7f}
-    };
     for(int i = 0; i < 100; ++i) {
-        raindrops.push_back({(float)rand()/RAND_MAX * 2.0f - 1.0f,
-                             (float)rand()/RAND_MAX,
-                             0.005f});
+        raindrops.push_back({{((float)rand()/RAND_MAX-0.5f) * 10.0f, 5.0f, ((float)rand()/RAND_MAX-0.5f) * 10.0f}, 0.1f});
+        snowflakes.push_back({{((float)rand()/RAND_MAX-0.5f) * 10.0f, 5.0f, ((float)rand()/RAND_MAX-0.5f) * 10.0f}, 0.03f});
     }
     for(int i = 0; i < 100; ++i) {
-        snowflakes.push_back({(float)rand()/RAND_MAX * 2.0f - 1.0f,
-                              (float)rand()/RAND_MAX,
-                              0.002f});
-    }
-    for(int i = 0; i < 100; ++i) {
-        stars.push_back({(float)rand()/RAND_MAX * 2.0f - 1.0f,
-                         (float)rand()/RAND_MAX});
+        stars.push_back({{((float)rand()/RAND_MAX-0.5f) * 30.0f, ((float)rand()/RAND_MAX) * 15.0f + 5.0f, ((float)rand()/RAND_MAX-0.5f) * 30.0f}});
     }
     for(int i = 0; i < 5; ++i) {
-        birds.push_back({-1.0f + (float)(i) * 0.3f,
-                          0.5f + (float)(rand()%100)/300.0f});
+        birds.push_back({{-5.0f + i * 2.0f, 3.0f, ((float)rand()/RAND_MAX-0.5f) * 5.0f, 0.01f}});
+    }
+    trees = {
+        {{2.0f, 0.0f, -3.0f}},
+        {{-2.5f, 0.0f, -4.0f}},
+        {{1.0f, 0.0f, -6.0f}},
+        {{-1.5f, 0.0f, -7.0f}}
+    };
+}
+
+// Yorug‘lik sozlash
+void setupLights() {
+    GLfloat light_position[] = {1.0f, 5.0f, 1.0f, 1.0f};
+    GLfloat ambient[] = {0.2f, 0.2f, 0.2f, 1.0f};
+    GLfloat diffuse[] = {0.8f, 0.8f, 0.8f, 1.0f};
+    glLightfv(GL_LIGHT0, GL_POSITION, light_position);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+}
+
+void drawGround() {
+    glDisable(GL_TEXTURE_2D);
+    glColor3f(0.3f, 0.7f, 0.3f);
+    glBegin(GL_QUADS);
+    glVertex3f(-100.0f, 0.0f, -100.0f);
+    glVertex3f(-100.0f, 0.0f, 100.0f);
+    glVertex3f(100.0f, 0.0f, 100.0f);
+    glVertex3f(100.0f, 0.0f, -100.0f);
+    glEnd();
+    glEnable(GL_TEXTURE_2D);
+}
+
+void drawTrees() {
+    glBindTexture(GL_TEXTURE_2D, textureId);
+    for (auto &t : trees) {
+        glPushMatrix();
+        glTranslatef(t.pos.x, t.pos.y, t.pos.z);
+        drawOBJ(treeModel);
+        glPopMatrix();
     }
 }
 
-// ===========================
-// ⚡️ Draw Objects
-// ===========================
-void drawRaindrops() {
+void drawRain() {
+    glDisable(GL_TEXTURE_2D);
+    glColor3f(0.5f, 0.5f, 1.0f);
+    glBegin(GL_LINES);
     for (auto &rd : raindrops) {
-        rd.y -= rd.speed;
-        if (rd.y < -1.0f) rd.y = 1.0f;
-
-        glColor3f(0.5f, 0.5f, 1.0f);
-        glBegin(GL_LINES);
-        glVertex2f(rd.x, rd.y);
-        glVertex2f(rd.x, rd.y + 0.01f);
-        glEnd();
+        glVertex3f(rd.pos.x, rd.pos.y, rd.pos.z);
+        glVertex3f(rd.pos.x, rd.pos.y + 0.1f, rd.pos.z);
     }
+    glEnd();
 }
 
-void drawSnowflakes() {
+void drawSnow() {
+    glPointSize(3.0f);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_POINTS);
     for (auto &snow : snowflakes) {
-        snow.y -= snow.speed;
-        if (snow.y < -1.0f) snow.y = 1.0f;
-
-        glPointSize(3.0f);
-        glColor3f(1.0f, 1.0f, 1.0f);
-        glBegin(GL_POINTS);
-        glVertex2f(snow.x, snow.y);
-        glEnd();
+        glVertex3f(snow.pos.x, snow.pos.y, snow.pos.z);
     }
+    glEnd();
 }
 
 void drawStars() {
+    glPointSize(2.0f);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_POINTS);
     for (auto &star : stars) {
-        glPointSize(2.0f);
-        glColor3f(1.0f, 1.0f, 1.0f);
-        glBegin(GL_POINTS);
-        glVertex2f(star.x, star.y);
-        glEnd();
+        glVertex3f(star.pos.x, star.pos.y, star.pos.z);
     }
+    glEnd();
 }
 
 void drawBirds() {
+    glDisable(GL_TEXTURE_2D);
+    glColor3f(0.1f, 0.1f, 0.1f);
     for (auto &bird : birds) {
-        bird.x += 0.001f;
-        if (bird.x > 1.0f) bird.x = -1.0f;
-
-        glColor3f(0.1f, 0.1f, 0.1f);
-        glBegin(GL_LINES);
-        glVertex2f(bird.x - 0.01f, bird.y);
-        glVertex2f(bird.x, bird.y + 0.005f);
-        glVertex2f(bird.x, bird.y + 0.005f);
-        glVertex2f(bird.x + 0.01f, bird.y);
+        glPushMatrix();
+        glTranslatef(bird.pos.x, bird.pos.y, bird.pos.z);
+        glBegin(GL_TRIANGLES);
+        glVertex3f(-0.1f, 0.0f, 0.0f);
+        glVertex3f(0.1f, 0.0f, 0.0f);
+        glVertex3f(0.0f, 0.1f, 0.0f);
         glEnd();
+        glPopMatrix();
     }
 }
 
-// ===========================
-// ⚡️ Main Loop
-// ===========================
+void updateScene() {
+    for (auto &rd : raindrops) {
+        rd.pos.y -= rd.speed;
+        if (rd.pos.y < 0.0f) rd.pos.y = 5.0f;
+    }
+    for (auto &snow : snowflakes) {
+        snow.pos.y -= snow.speed;
+        if (snow.pos.y < 0.0f) snow.pos.y = 5.0f;
+    }
+    for (auto &bird : birds) {
+        bird.pos.x += bird.speed;
+        if (bird.pos.x > 5.0f) bird.pos.x = -5.0f;
+    }
+}
+
+void setSkyColor() {
+    float t = dayTime;
+
+    float r, g, b;
+
+    if (t >= 6.0f && t < 18.0f) {
+        r = 0.53f; g = 0.8f; b = 1.0f;
+    } else {
+        r = 0.0f; g = 0.0f; b = 0.1f;
+    }
+    glClearColor(r, g, b, 1.0f);
+}
+
 void display() {
-    Color sky = getSkyColor();
-    glClearColor(sky.r, sky.g, sky.b, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
+    setSkyColor();
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glLoadIdentity();
 
-    // Kechasi yulduzlar
-    if (dayTime >= 18.0f || dayTime < 6.0f) {
-        drawStars();
-    }
+    glRotatef(camera.pitch, 1.0f, 0.0f, 0.0f);
+    glRotatef(camera.yaw, 0.0f, 1.0f, 0.0f);
+    glTranslatef(-camera.x, -camera.y, -camera.z);
 
-    // Daraxtlar
-    for (auto &t : trees) {
-        t.draw(windOffset);
-    }
-
-    // Qushlar
+    setupLights();
+    drawGround();
+    drawTrees();
     drawBirds();
-
-    // Ob-havo
-    if (isRaining) drawRaindrops();
-    if (isSnowing) drawSnowflakes();
+    if (isRaining) drawRain();
+    if (isSnowing) drawSnow();
+    if (dayTime >= 18.0f || dayTime < 6.0f) drawStars();
 
     glutSwapBuffers();
 }
 
 void timer(int value) {
-    windOffset = 0.01f * sin(value * M_PI / 180.0f);
+    dayTime += 0.01f;
+    if (dayTime >= 24.0f) dayTime = 0.0f;
+
+    updateScene();
     glutPostRedisplay();
-    glutTimerFunc(16, timer, value + 1);
+    glutTimerFunc(16, timer, 0);
+}
+
+void keyboard(unsigned char key, int, int) {
+    float moveSpeed = 0.1f;
+
+    switch (key) {
+        case 'w': camera.z -= moveSpeed; break;
+        case 's': camera.z += moveSpeed; break;
+        case 'a': camera.x -= moveSpeed; break;
+        case 'd': camera.x += moveSpeed; break;
+        case 'q': camera.y += moveSpeed; break;
+        case 'e': camera.y -= moveSpeed; break;
+        case 27: exit(0);
+    }
+}
+
+void specialKeys(int key, int, int) {
+    float angleSpeed = 2.0f;
+
+    switch (key) {
+        case GLUT_KEY_LEFT: camera.yaw -= angleSpeed; break;
+        case GLUT_KEY_RIGHT: camera.yaw += angleSpeed; break;
+        case GLUT_KEY_UP: camera.pitch += angleSpeed; break;
+        case GLUT_KEY_DOWN: camera.pitch -= angleSpeed; break;
+    }
 }
 
 int main(int argc, char** argv) {
     glutInit(&argc, argv);
-    glutInitWindowSize(800, 600);
-    glutCreateWindow("KrystallEngine Demo");
+    glutInitWindowSize(1024, 768);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
+    glutCreateWindow("KrystallEngine 3D Demo - Final Version");
+
+    glewInit();
+
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_TEXTURE_2D);
+
+    initScene();
+
     glutDisplayFunc(display);
     glutTimerFunc(16, timer, 0);
-    initScene();
+    glutKeyboardFunc(keyboard);
+    glutSpecialFunc(specialKeys);
+
     glutMainLoop();
     return 0;
 }
