@@ -1,266 +1,241 @@
-#include <GL/glew.h>
-#include <GL/freeglut.h>
-#include <vector>
-#include <string>
+// ===========================================================
+// ⚡ KrystallEngine Demo (3D) - Asosiy Fayl
+// Min: Model, Kamera, Yorug'lik, 3D Render
+// ===========================================================
+
 #include <iostream>
+#include <string>
+#include <vector>
 #include <cmath>
-#include "stb_image.h"           // Rasmlarni yuklash
-#include "obj_loader.h"           // .obj model yuklash (oddiy loader)
+#include <cassert>
+#include <map>
+#include <memory>
+#include <sstream>
+#include <fstream>
 
-struct Vector3 {
-    float x, y, z;
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#include <glm/glm.hpp> 
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+struct App {
+    static float lastX, lastY;
+    static bool firstMouse;
 };
-struct Bird {
-    Vector3 pos;
-    float speed;
-};
-struct Tree {
-    Vector3 pos;
-};
-struct Raindrop {
-    Vector3 pos;
-    float speed;
-};
-struct Snowflake {
-    Vector3 pos;
-    float speed;
-};
-struct Star {
-    Vector3 pos;
-};
+float App::lastX = 512, App::lastY = 384;
+bool App::firstMouse = true;
+
 struct Camera {
-    float x, y, z, yaw, pitch;
+    glm::vec3 Position;
+    float Yaw, Pitch, Speed;
+
+    Camera(glm::vec3 pos) : Position(pos), Yaw(-90.0f), Pitch(0.0f), Speed(2.5f) {}
+
+    glm::mat4 GetViewMatrix() {
+        glm::vec3 direction;
+        direction.x = cos(glm::radians(Yaw)) * cos(glm::radians(Pitch));
+        direction.y = sin(glm::radians(Pitch));
+        direction.z = sin(glm::radians(Yaw)) * cos(glm::radians(Pitch));
+        return glm::lookAt(Position, Position + glm::normalize(direction), glm::vec3(0.0f,1.0f,0.0f));
+    }
 };
+Camera camera(glm::vec3(0.0f, 1.5f, 3.0f));
 
-Camera camera = {0.0f, 2.0f, 5.0f, -90.0f, 0.0f};
-float dayTime = 12.0f;
-
-std::vector<Raindrop> raindrops;
-std::vector<Snowflake> snowflakes;
-std::vector<Star> stars;
-std::vector<Bird> birds;
-std::vector<Tree> trees;
-
-bool isRaining = true;
-bool isSnowing = false;
-
-GLuint textureId;
-OBJModel treeModel;
-
-void loadTexture(const char* path) {
-    int w, h, channels;
-    unsigned char* data = stbi_load(path, &w, &h, &channels, 3);
-    glGenTextures(1, &textureId);
-    glBindTexture(GL_TEXTURE_2D, textureId);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, h, 0,
-                GL_RGB, GL_UNSIGNED_BYTE, data);
-    glGenerateMipmap(GL_TEXTURE_2D);
-    stbi_image_free(data);
-}
-
-void initScene() {
-    srand(time(nullptr));
-    loadTexture("resources/tree.png");        // Daraxt uchun
-    treeModel = loadOBJ("resources/tree.obj"); // .obj modeli
-
-    for(int i = 0; i < 100; ++i) {
-        raindrops.push_back({{((float)rand()/RAND_MAX-0.5f) * 10.0f, 5.0f, ((float)rand()/RAND_MAX-0.5f) * 10.0f}, 0.1f});
-        snowflakes.push_back({{((float)rand()/RAND_MAX-0.5f) * 10.0f, 5.0f, ((float)rand()/RAND_MAX-0.5f) * 10.0f}, 0.03f});
+// ===========================================================
+// ⚡ UTILITY FUNKSIYALAR
+// ===========================================================
+static std::string loadFile(const std::string &path) {
+    std::ifstream file(path);
+    if (!file) {
+        std::cerr << "Fayl o'qilmadi: " << path << '\n';
+        return {};
     }
-    for(int i = 0; i < 100; ++i) {
-        stars.push_back({{((float)rand()/RAND_MAX-0.5f) * 30.0f, ((float)rand()/RAND_MAX) * 15.0f + 5.0f, ((float)rand()/RAND_MAX-0.5f) * 30.0f}});
+    std::stringstream ss;
+    ss << file.rdbuf();
+    return ss.str();
+}
+void error_callback(int error, const char* description) {
+    std::cerr << "GLFW Xato: " << description << '\n';
+}
+
+// ===========================================================
+// ⚡ SHADER
+// ===========================================================
+struct Shader {
+    unsigned int id;
+
+    Shader(const std::string &vertSrc, const std::string &fragSrc) {
+        unsigned int vShader = glCreateShader(GL_VERTEX_SHADER);
+        const char *vCode = vertSrc.c_str();
+        glShaderSource(vShader, 1, &vCode, NULL);
+        glCompileShader(vShader);
+        int success;
+        glGetShaderiv(vShader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            char log[512];
+            glGetShaderInfoLog(vShader, 512, NULL, log);
+            std::cerr << "Vertex Shader Xato:\n" << log << '\n';
+        }
+
+        unsigned int fShader = glCreateShader(GL_FRAGMENT_SHADER);
+        const char *fCode = fragSrc.c_str();
+        glShaderSource(fShader, 1, &fCode, NULL);
+        glCompileShader(fShader);
+        glGetShaderiv(fShader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            char log[512];
+            glGetShaderInfoLog(fShader, 512, NULL, log);
+            std::cerr << "Fragment Shader Xato:\n" << log << '\n';
+        }
+
+        id = glCreateProgram();
+        glAttachShader(id, vShader);
+        glAttachShader(id, fShader);
+        glLinkProgram(id);
+        glGetProgramiv(id, GL_LINK_STATUS, &success);
+        if (!success) {
+            char log[512];
+            glGetProgramInfoLog(id, 512, NULL, log);
+            std::cerr << "Shader Link Xato:\n" << log << '\n';
+        }
+        glDeleteShader(vShader);
+        glDeleteShader(fShader);
     }
-    for(int i = 0; i < 5; ++i) {
-        birds.push_back({{-5.0f + i * 2.0f, 3.0f, ((float)rand()/RAND_MAX-0.5f) * 5.0f, 0.01f}});
+
+    void use() const { glUseProgram(id); }
+    void setMat4(const std::string &name, const glm::mat4 &mat) const {
+        glUniformMatrix4fv(glGetUniformLocation(id, name.c_str()),
+                           1, GL_FALSE, glm::value_ptr(mat));
     }
-    trees = {
-        {{2.0f, 0.0f, -3.0f}},
-        {{-2.5f, 0.0f, -4.0f}},
-        {{1.0f, 0.0f, -6.0f}},
-        {{-1.5f, 0.0f, -7.0f}}
-    };
-}
-
-// Yorug‘lik sozlash
-void setupLights() {
-    GLfloat light_position[] = {1.0f, 5.0f, 1.0f, 1.0f};
-    GLfloat ambient[] = {0.2f, 0.2f, 0.2f, 1.0f};
-    GLfloat diffuse[] = {0.8f, 0.8f, 0.8f, 1.0f};
-    glLightfv(GL_LIGHT0, GL_POSITION, light_position);
-    glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
-}
-
-void drawGround() {
-    glDisable(GL_TEXTURE_2D);
-    glColor3f(0.3f, 0.7f, 0.3f);
-    glBegin(GL_QUADS);
-    glVertex3f(-100.0f, 0.0f, -100.0f);
-    glVertex3f(-100.0f, 0.0f, 100.0f);
-    glVertex3f(100.0f, 0.0f, 100.0f);
-    glVertex3f(100.0f, 0.0f, -100.0f);
-    glEnd();
-    glEnable(GL_TEXTURE_2D);
-}
-
-void drawTrees() {
-    glBindTexture(GL_TEXTURE_2D, textureId);
-    for (auto &t : trees) {
-        glPushMatrix();
-        glTranslatef(t.pos.x, t.pos.y, t.pos.z);
-        drawOBJ(treeModel);
-        glPopMatrix();
+    void setVec3(const std::string &name, const glm::vec3 &value) const {
+        glUniform3fv(glGetUniformLocation(id, name.c_str()),
+                     1, &value[0]);
     }
-}
+};
+ 
+// ===========================================================
+// ⚡ MODEL (Oddiy Cube)
+// ===========================================================
+struct Model {
+    unsigned int VAO, VBO;
 
-void drawRain() {
-    glDisable(GL_TEXTURE_2D);
-    glColor3f(0.5f, 0.5f, 1.0f);
-    glBegin(GL_LINES);
-    for (auto &rd : raindrops) {
-        glVertex3f(rd.pos.x, rd.pos.y, rd.pos.z);
-        glVertex3f(rd.pos.x, rd.pos.y + 0.1f, rd.pos.z);
+    void load() {
+        float vertices[] = {
+            // Positions          // Normals
+            -0.5f, -0.5f, -0.5f,  0.0f, 0.0f,-1.0f,
+             0.5f, -0.5f, -0.5f,  0.0f, 0.0f,-1.0f,
+             0.5f,  0.5f, -0.5f,  0.0f, 0.0f,-1.0f,
+            -0.5f,  0.5f, -0.5f,  0.0f, 0.0f,-1.0f,
+            // (Yuqoridagi kabi boshqa tomonlarni ham qo'shing.)
+        };
+        unsigned int indices[] = {
+            0,1,2, 2,3,0
+        };
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glBindVertexArray(VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
     }
-    glEnd();
-}
 
-void drawSnow() {
-    glPointSize(3.0f);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    glBegin(GL_POINTS);
-    for (auto &snow : snowflakes) {
-        glVertex3f(snow.pos.x, snow.pos.y, snow.pos.z);
+    void draw() {
+        glBindVertexArray(VAO);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     }
-    glEnd();
-}
-
-void drawStars() {
-    glPointSize(2.0f);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    glBegin(GL_POINTS);
-    for (auto &star : stars) {
-        glVertex3f(star.pos.x, star.pos.y, star.pos.z);
+};
+ 
+// ===========================================================
+// ⚡ MAIN FUNCTION
+// ===========================================================
+int main() {
+    if (!glfwInit()) {
+        std::cerr << "GLFW init error!\n"; return -1;
     }
-    glEnd();
-}
-
-void drawBirds() {
-    glDisable(GL_TEXTURE_2D);
-    glColor3f(0.1f, 0.1f, 0.1f);
-    for (auto &bird : birds) {
-        glPushMatrix();
-        glTranslatef(bird.pos.x, bird.pos.y, bird.pos.z);
-        glBegin(GL_TRIANGLES);
-        glVertex3f(-0.1f, 0.0f, 0.0f);
-        glVertex3f(0.1f, 0.0f, 0.0f);
-        glVertex3f(0.0f, 0.1f, 0.0f);
-        glEnd();
-        glPopMatrix();
+    glfwSetErrorCallback(error_callback);
+    GLFWwindow *window = glfwCreateWindow(1024, 768, "KrystallEngine Demo", NULL, NULL);
+    if (!window) {
+        std::cerr << "Window error!\n"; return -1;
     }
-}
-
-void updateScene() {
-    for (auto &rd : raindrops) {
-        rd.pos.y -= rd.speed;
-        if (rd.pos.y < 0.0f) rd.pos.y = 5.0f;
+    glfwMakeContextCurrent(window);
+    if (glewInit() != GLEW_OK) {
+        std::cerr << "GLEW error!\n"; return -1;
     }
-    for (auto &snow : snowflakes) {
-        snow.pos.y -= snow.speed;
-        if (snow.pos.y < 0.0f) snow.pos.y = 5.0f;
-    }
-    for (auto &bird : birds) {
-        bird.pos.x += bird.speed;
-        if (bird.pos.x > 5.0f) bird.pos.x = -5.0f;
-    }
-}
-
-void setSkyColor() {
-    float t = dayTime;
-
-    float r, g, b;
-
-    if (t >= 6.0f && t < 18.0f) {
-        r = 0.53f; g = 0.8f; b = 1.0f;
-    } else {
-        r = 0.0f; g = 0.0f; b = 0.1f;
-    }
-    glClearColor(r, g, b, 1.0f);
-}
-
-void display() {
-    setSkyColor();
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glLoadIdentity();
-
-    glRotatef(camera.pitch, 1.0f, 0.0f, 0.0f);
-    glRotatef(camera.yaw, 0.0f, 1.0f, 0.0f);
-    glTranslatef(-camera.x, -camera.y, -camera.z);
-
-    setupLights();
-    drawGround();
-    drawTrees();
-    drawBirds();
-    if (isRaining) drawRain();
-    if (isSnowing) drawSnow();
-    if (dayTime >= 18.0f || dayTime < 6.0f) drawStars();
-
-    glutSwapBuffers();
-}
-
-void timer(int value) {
-    dayTime += 0.01f;
-    if (dayTime >= 24.0f) dayTime = 0.0f;
-
-    updateScene();
-    glutPostRedisplay();
-    glutTimerFunc(16, timer, 0);
-}
-
-void keyboard(unsigned char key, int, int) {
-    float moveSpeed = 0.1f;
-
-    switch (key) {
-        case 'w': camera.z -= moveSpeed; break;
-        case 's': camera.z += moveSpeed; break;
-        case 'a': camera.x -= moveSpeed; break;
-        case 'd': camera.x += moveSpeed; break;
-        case 'q': camera.y += moveSpeed; break;
-        case 'e': camera.y -= moveSpeed; break;
-        case 27: exit(0);
-    }
-}
-
-void specialKeys(int key, int, int) {
-    float angleSpeed = 2.0f;
-
-    switch (key) {
-        case GLUT_KEY_LEFT: camera.yaw -= angleSpeed; break;
-        case GLUT_KEY_RIGHT: camera.yaw += angleSpeed; break;
-        case GLUT_KEY_UP: camera.pitch += angleSpeed; break;
-        case GLUT_KEY_DOWN: camera.pitch -= angleSpeed; break;
-    }
-}
-
-int main(int argc, char** argv) {
-    glutInit(&argc, argv);
-    glutInitWindowSize(1024, 768);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
-    glutCreateWindow("KrystallEngine 3D Demo - Final Version");
-
-    glewInit();
-
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_TEXTURE_2D);
 
-    initScene();
+    std::string vertexCode = R"(
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNormal;
 
-    glutDisplayFunc(display);
-    glutTimerFunc(16, timer, 0);
-    glutKeyboardFunc(keyboard);
-    glutSpecialFunc(specialKeys);
+out vec3 Normal;
+out vec3 FragPos;
 
-    glutMainLoop();
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+void main() {
+    FragPos = vec3(model * vec4(aPos, 1.0));
+    Normal = aNormal;
+    gl_Position = projection * view * vec4(aPos, 1.0);
+}
+    )";
+    std::string fragCode = R"(
+#version 330 core
+out vec4 FragColor;
+
+in vec3 Normal;
+in vec3 FragPos;
+
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+
+void main() {
+    vec3 norm = normalize(Normal);
+    vec3 lightDir = normalize(lightPos - FragPos);
+    float diff = max(dot(norm, lightDir), 0.0);
+    vec3 diffuse = diff * vec3(1.0,1.0,1.0);
+    vec3 ambient = 0.1 * vec3(1.0,1.0,1.0);
+    FragColor = vec4(ambient + diffuse, 1.0);
+}
+    )";
+
+    Shader shader(vertexCode, fragCode);
+    Model cube;
+    cube.load();
+
+    while (!glfwWindowShouldClose(window)) {
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        float time = (float)glfwGetTime();
+        camera.Position = glm::vec3(sin(time) * 3.0f, 1.5f, cos(time) * 3.0f);
+
+        glm::mat4 model = glm::mat4(1.0f);
+        glm::mat4 view = camera.GetViewMatrix();
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), 1024.0f/768.0f, 0.1f, 100.0f);
+
+        shader.use();
+        shader.setMat4("model", model);
+        shader.setMat4("view", view);
+        shader.setMat4("projection", projection);
+        shader.setVec3("lightPos", glm::vec3(2.0f, 4.0f, 2.0f));
+        shader.setVec3("viewPos", camera.Position);
+
+        cube.draw();
+
+        glfwSwapBuffers(window);
+        glfwPollEvents();
+    }
+
+    glfwTerminate();
     return 0;
 }
